@@ -1,0 +1,8 @@
+.DS_Store
+backend/data/
+frontend/dist/
+frontend/node_modules/
+outputs/
+__pycache__/
+.pytest_cache/
+*.pyc
