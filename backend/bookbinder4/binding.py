@@ -19,17 +19,25 @@ def parse_custom_folios(value: str) -> list[int]:
     return [folio for folio in folios if folio > 0]
 
 
-def page_sequence(page_count: int, flyleaf: bool) -> list[int | None]:
+def flyleaf_blank_pages(settings: ImpositionSettings) -> tuple[int, int]:
+    return settings.front_flyleaf_leaves * 2, settings.back_flyleaf_leaves * 2
+
+
+def page_sequence(page_count: int, settings: ImpositionSettings) -> tuple[list[int | None], int, int]:
+    front_blanks, back_blanks = flyleaf_blank_pages(settings)
     pages: list[int | None] = list(range(1, page_count + 1))
-    if flyleaf:
-        pages = [None, None] + pages + [None, None]
+    pages = ([None] * front_blanks) + pages + ([None] * back_blanks)
+    flyleaf_pages = front_blanks + back_blanks
+    before_padding = len(pages)
     while len(pages) % 4:
         pages.append(None)
-    return pages
+    return pages, flyleaf_pages, len(pages) - before_padding
 
 
 def standard_folios(total_pages: int, target_folios: int) -> list[int]:
     sheets = math.ceil(total_pages / 4)
+    if target_folios == 4:
+        return recommend_folios(total_pages, preferred=4, max_folios=5, avoid_one=True)
     folios: list[int] = []
     remaining = sheets
     while remaining > 0:
@@ -37,6 +45,42 @@ def standard_folios(total_pages: int, target_folios: int) -> list[int]:
         folios.append(folio_count)
         remaining -= folio_count
     return folios
+
+
+def recommend_folios(total_pages: int, preferred: int = 4, max_folios: int = 5, avoid_one: bool = True) -> list[int]:
+    sheets = math.ceil(total_pages / 4)
+    if sheets <= 0:
+        return []
+    if sheets == 1:
+        return [1]
+
+    preferred = max(1, preferred)
+    max_folios = max(preferred, max_folios, 1)
+    candidates = list(range(1, max_folios + 1))
+    best: dict[int, tuple[float, list[int]]] = {0: (0, [])}
+
+    for total in range(1, sheets + 1):
+        options: list[tuple[float, list[int]]] = []
+        for folio in candidates:
+            previous = total - folio
+            if previous < 0 or previous not in best:
+                continue
+            base_cost, base_parts = best[previous]
+            if avoid_one and folio == 1 and sheets > 1:
+                folio_cost = 1000
+            elif folio == preferred:
+                folio_cost = 0
+            elif folio == max_folios:
+                folio_cost = 4
+            elif folio < preferred:
+                folio_cost = (preferred - folio) * 8
+            else:
+                folio_cost = (folio - preferred) * 6
+            options.append((base_cost + folio_cost + 0.1, base_parts + [folio]))
+        if options:
+            best[total] = min(options, key=lambda item: (item[0], len(item[1]), item[1]))
+
+    return sorted(best[sheets][1], reverse=True)
 
 
 def folios_for_settings(settings: ImpositionSettings, total_pages: int) -> tuple[list[int], list[str]]:
@@ -137,7 +181,7 @@ def slot_rects(settings: ImpositionSettings, folios: int, sheet_in_signature: in
 
 def build_plan(page_count: int, settings: ImpositionSettings) -> ImpositionPlan:
     warnings: list[str] = []
-    pages = page_sequence(page_count, settings.flyleaf)
+    pages, flyleaf_pages, padding_blank_pages = page_sequence(page_count, settings)
     folios, folio_warnings = folios_for_settings(settings, len(pages))
     warnings.extend(folio_warnings)
     signatures = split_signatures(pages, folios)
@@ -177,13 +221,21 @@ def build_plan(page_count: int, settings: ImpositionSettings) -> ImpositionPlan:
 
     blank_pages = sum(1 for sig in signatures for page in sig if page is None)
     if blank_pages:
-        warnings.append(f"{blank_pages} blank page(s) will be added to complete the signatures.")
+        parts = []
+        if flyleaf_pages:
+            parts.append(f"{flyleaf_pages} flyleaf blank page(s)")
+        if padding_blank_pages:
+            parts.append(f"{padding_blank_pages} padding blank page(s)")
+        detail = " and ".join(parts) if parts else f"{blank_pages} blank page(s)"
+        warnings.append(f"{detail} will be added to complete the signatures.")
 
     return ImpositionPlan(
         job_id=settings.job_id,
         total_source_pages=page_count,
         total_imposed_pages=sum(len(sig) for sig in signatures),
         blank_pages=blank_pages,
+        flyleaf_pages=flyleaf_pages,
+        padding_blank_pages=padding_blank_pages,
         signatures=signature_plans,
         sheets=sheet_plans,
         warnings=warnings,
