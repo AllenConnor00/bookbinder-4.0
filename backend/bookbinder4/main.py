@@ -7,8 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .models import CalibrationRequest, ContactSheetRequest, ExportResult, ImpositionPlan, ImpositionSettings, PdfInspectResult, PreviewRequest
-from .pdf_engine import create_calibration_page, create_contact_sheet, export_job, inspect_pdf, plan_for_job, render_preview, save_upload
+from .binding import recommend_folios
+from .models import CalibrationRequest, ContactSheetRequest, ExportResult, ImpositionPlan, ImpositionSettings, PdfInspectResult, PreviewRequest, PunchingTemplateInfo, PunchingTemplateRequest, SignatureRecommendationRequest, SignatureRecommendationResult
+from .pdf_engine import create_calibration_page, create_contact_sheet, create_punching_template, export_job, inspect_pdf, plan_for_job, punching_template_info, render_preview, save_upload
 
 
 app = FastAPI(title="Bookbinder 4", version="4.0.0")
@@ -49,6 +50,13 @@ def export(settings: ImpositionSettings) -> ExportResult:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.post("/api/imposition/recommend", response_model=SignatureRecommendationResult)
+def recommend_signatures(request: SignatureRecommendationRequest) -> SignatureRecommendationResult:
+    total_pages = request.total_pages + request.front_flyleaf_leaves * 2 + request.back_flyleaf_leaves * 2
+    folios = recommend_folios(total_pages, request.preferred, request.max_folios, request.avoid_one)
+    return SignatureRecommendationResult(total_pages=total_pages, total_sheets=sum(folios), folios=folios)
+
+
 @app.get("/api/preview/{job_id}/{sheet_index}")
 def preview(job_id: str, sheet_index: int) -> FileResponse:
     try:
@@ -76,9 +84,22 @@ def contact_sheet(request: ContactSheetRequest) -> FileResponse:
 @app.post("/api/tools/calibration")
 def calibration(request: CalibrationRequest) -> FileResponse:
     try:
-        return FileResponse(create_calibration_page(request.paper, request.print_safe_margin), media_type="application/pdf", filename="bookbinder4-printer-calibration.pdf")
+        return FileResponse(create_calibration_page(request.paper, request.print_safe_margin, request.flip_edge), media_type="application/pdf", filename="bookbinder4-printer-calibration.pdf")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/tools/punching-template")
+def punching_template(request: PunchingTemplateRequest) -> FileResponse:
+    try:
+        return FileResponse(create_punching_template(request.settings), media_type="application/pdf", filename="bookbinder4-punching-template.pdf")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/tools/punching-template/info", response_model=PunchingTemplateInfo)
+def punching_template_metadata(request: PunchingTemplateRequest) -> PunchingTemplateInfo:
+    return punching_template_info(request.settings)
 
 
 dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"

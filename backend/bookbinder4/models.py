@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class BindingMode(str, Enum):
@@ -37,7 +37,10 @@ class ImpositionSettings(BaseModel):
     binding_mode: BindingMode = BindingMode.custom
     custom_signature_folios: str = "4"
     standard_signature_folios: int = Field(default=4, ge=1, le=16)
-    flyleaf: bool = False
+    flyleaf: bool | None = None
+    flyleaf_arrangement: Literal["none", "single", "double"] = "double"
+    front_flyleaf_leaves: int = Field(default=2, ge=0, le=8)
+    back_flyleaf_leaves: int = Field(default=2, ge=0, le=8)
     paper: PaperPreset = Field(default_factory=lambda: PaperPreset(name="Letter", width=612, height=792))
     book_width: float | None = None
     book_height: float | None = None
@@ -48,14 +51,57 @@ class ImpositionSettings(BaseModel):
     creep: float = Field(default=0, ge=0, le=72)
     duplex: bool = True
     flip_edge: Literal["short", "long"] = "short"
+    book_type: Literal["custom", "practice", "general_hardcover", "trpg_reference", "deluxe_tome"] = "custom"
+    sewing_layout: Literal["custom", "unsupported_3", "unsupported_5", "two_tape", "three_tape"] = "custom"
     split_output: Literal["combined", "by_signature"] = "by_signature"
     crop_marks: bool = False
     sewing_marks: bool = False
+    sewing_debug_marks: bool = False
     sewing_station_count: int = Field(default=5, ge=2, le=12)
-    sewing_station_margin: float = Field(default=56.7, ge=0, le=216)
+    sewing_station_margin: float = Field(default=56.6929133858, ge=0, le=216)
     sewing_mark_length: float = Field(default=11.3, ge=2, le=36)
-    fidelity: Literal["hybrid", "vector", "raster"] = "raster"
-    raster_dpi: int = Field(default=300, ge=72, le=600)
+    tape_supports: bool = True
+    tape_count: int = Field(default=3, ge=0, le=6)
+    tape_width: float = Field(default=17.0, ge=0, le=72)
+    project_name: str | None = None
+    fidelity: Literal["vector", "raster", "auto"] = "auto"
+    raster_dpi: int = Field(default=600, ge=72, le=600)
+    auto_validation_dpi: int = Field(default=150, ge=72, le=300)
+    auto_diff_threshold: float = Field(default=3.0, ge=0, le=100)
+    auto_diff_mode: Literal["rmse", "pixel"] = "rmse"
+    manual_raster_pages: list[int] = Field(default_factory=list)
+    manual_vector_pages: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_flyleaf_settings(cls, data):
+        if not isinstance(data, dict):
+            return data
+
+        migrated = dict(data)
+        has_new_flyleaf = any(key in migrated for key in ("flyleaf_arrangement", "front_flyleaf_leaves", "back_flyleaf_leaves"))
+        if not has_new_flyleaf and "flyleaf" in migrated:
+            if migrated.get("flyleaf"):
+                migrated["flyleaf_arrangement"] = "single"
+                migrated["front_flyleaf_leaves"] = 1
+                migrated["back_flyleaf_leaves"] = 1
+            else:
+                migrated["flyleaf_arrangement"] = "none"
+                migrated["front_flyleaf_leaves"] = 0
+                migrated["back_flyleaf_leaves"] = 0
+        elif "flyleaf_arrangement" in migrated:
+            arrangement = migrated["flyleaf_arrangement"]
+            defaults = {"none": 0, "single": 1, "double": 2}
+            if arrangement in defaults:
+                migrated.setdefault("front_flyleaf_leaves", defaults[arrangement])
+                migrated.setdefault("back_flyleaf_leaves", defaults[arrangement])
+
+        return migrated
+
+    @model_validator(mode="after")
+    def sync_flyleaf_bool(self):
+        self.flyleaf = self.front_flyleaf_leaves > 0 or self.back_flyleaf_leaves > 0
+        return self
 
 
 class PageSlot(BaseModel):
@@ -88,6 +134,8 @@ class ImpositionPlan(BaseModel):
     total_source_pages: int
     total_imposed_pages: int
     blank_pages: int
+    flyleaf_pages: int = 0
+    padding_blank_pages: int = 0
     signatures: list[SignaturePlan]
     sheets: list[SheetPlan]
     warnings: list[str] = []
@@ -120,11 +168,33 @@ class PdfInspectResult(BaseModel):
     preflight: list[PreflightItem] = []
 
 
+class AutoFidelityDecision(BaseModel):
+    source_page: int
+    mode: Literal["vector", "raster"]
+    reason: str
+    diff_score: float | None = None
+    threshold: float | None = None
+
+
+class ExportReport(BaseModel):
+    fidelity: Literal["vector", "raster", "auto"]
+    total_slots: int
+    vector_slots: int
+    raster_slots: int
+    auto_validated_pages: int = 0
+    raster_fallback_pages: list[int] = Field(default_factory=list)
+    manual_raster_pages: list[int] = Field(default_factory=list)
+    manual_vector_pages: list[int] = Field(default_factory=list)
+    decisions: list[AutoFidelityDecision] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ExportResult(BaseModel):
     job_id: str
     output_paths: list[str]
     validation_warnings: list[str]
     plan: ImpositionPlan
+    export_report: ExportReport | None = None
 
 
 class PreviewRequest(BaseModel):
@@ -140,3 +210,51 @@ class ContactSheetRequest(BaseModel):
 class CalibrationRequest(BaseModel):
     paper: PaperPreset = Field(default_factory=lambda: PaperPreset(name="Letter", width=612, height=792))
     print_safe_margin: float = Field(default=14.2, ge=0, le=72)
+    flip_edge: Literal["short", "long"] = "short"
+
+
+class SignatureRecommendationRequest(BaseModel):
+    total_pages: int = Field(ge=0)
+    flyleaf: bool | None = None
+    flyleaf_arrangement: Literal["none", "single", "double"] = "double"
+    front_flyleaf_leaves: int = Field(default=2, ge=0, le=8)
+    back_flyleaf_leaves: int = Field(default=2, ge=0, le=8)
+    preferred: int = Field(default=4, ge=1, le=16)
+    max_folios: int = Field(default=5, ge=1, le=16)
+    avoid_one: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_flyleaf_settings(cls, data):
+        return ImpositionSettings.migrate_flyleaf_settings(data)
+
+    @model_validator(mode="after")
+    def sync_flyleaf_bool(self):
+        self.flyleaf = self.front_flyleaf_leaves > 0 or self.back_flyleaf_leaves > 0
+        return self
+
+
+class SignatureRecommendationResult(BaseModel):
+    total_pages: int
+    total_sheets: int
+    folios: list[int]
+
+
+class PunchingTemplateRequest(BaseModel):
+    settings: ImpositionSettings
+
+
+class SewingStation(BaseModel):
+    index: int
+    y_pt: float
+    y_mm: float
+
+
+class PunchingTemplateInfo(BaseModel):
+    width_pt: float
+    height_pt: float
+    width_mm: float
+    height_mm: float
+    folded_signature_height_pt: float
+    folded_signature_height_mm: float
+    station_positions: list[SewingStation]
