@@ -1,8 +1,34 @@
 # Bookbinder 4
 
-Bookbinder 4 is a local-only web app for generating printable bookbinding signatures from PDFs. It replaces the legacy Jython/Swing/iText app with a modern React UI and a FastAPI/PyMuPDF backend.
+A local-first web application for generating print-ready bookbinding signatures from PDF files.
 
-## Run
+Bookbinder 4 is a modern reimplementation and extension of the legacy **Bookbinder 3** desktop application. The current application replaces the older Java/Jython-era workflow with a **React frontend** and **FastAPI/PyMuPDF backend**, while preserving the specialized PDF-imposition workflow that made the original project useful.
+
+> **Project provenance:** The repository retains the original Bookbinder 3 archive for reference and regression testing. The original project's `readme.txt` credits its author and the iText/JPedal libraries used by the legacy application. Bookbinder 4 is my modernization of that application rather than a claim of authorship over the original Bookbinder 3 code. No new license is asserted here over the retained legacy source.
+
+## What Bookbinder 4 Does
+
+- Generates printable signatures from arbitrary PDFs
+- Supports custom folio patterns such as `4,4,3`
+- Performs PDF health checks before imposition
+- Provides rendered sheet previews and blank-page visibility
+- Includes printer calibration and print-safe margin controls
+- Supports creep, gutter, crop marks, and sewing-hole marks
+- Can prioritize maximum print reliability through page flattening
+- Can preserve vector/searchable content when print fidelity allows
+- Exports individual signatures or complete print-ready PDFs
+
+## Architecture
+
+**Frontend:** React  
+**Backend:** FastAPI / Python  
+**PDF processing:** PyMuPDF  
+**Testing:** Regression tests against legacy/sample documents  
+**Deployment model:** Local-first web application
+
+The application intentionally runs locally: source PDFs and generated book files do not need to be uploaded to an external service.
+
+## Run Locally
 
 Install dependencies:
 
@@ -13,44 +39,52 @@ npm install
 cd ..
 ```
 
-Start the app:
+Start the application:
 
 ```bash
 python3 scripts/dev.py
 ```
 
-Open `http://127.0.0.1:5173`.
+Then open:
 
-## Workflow
+```text
+http://127.0.0.1:5173
+```
+
+## Typical Workflow
 
 1. Choose a PDF.
-2. Pick custom folio signatures, such as `4,4,3`.
-3. Review the PDF health check, rendered sheet preview, and blank page locations.
-4. Use the calibration page if you need printer alignment help.
-5. Optionally export a preview contact sheet.
-6. Export printable PDFs.
+2. Select a signature pattern.
+3. Review the PDF health check, sheet preview, and blank-page locations.
+4. Calibrate for the target printer when necessary.
+5. Configure advanced imposition options if needed.
+6. Export print-ready signatures.
+7. Print duplex at **100% / Actual Size**.
 
 Generated PDFs are written under `outputs/<job-id>/`.
 
-## Hardcover Binding Workflow
+## Print & Binding Features
 
-For a sewn hardcover on letter paper:
+For sewn hardcover books, Bookbinder 4 can produce signatures with configurable sewing marks and print-safe margins. Advanced controls include:
 
-1. Export by signature and print duplex at 100% / Actual Size.
-2. Keep each signature in order as it comes off the printer.
-3. Fold every sheet exactly on the centerline, then nest the sheets for each signature.
-4. If using printed sewing marks, pierce each signature on the fold at the marked stations.
-5. Sew the signatures together with kettle stitches at the head and tail.
-6. Press the sewn text block flat, glue the spine, and add mull/super and endpapers.
-7. Trim only if needed, then case the text block into hardcover boards.
+- Signature size and folio patterns
+- Creep compensation
+- Gutter adjustment
+- Crop marks
+- Sewing-hole marks
+- PDF page-box selection
+- Output splitting
+- Configurable raster flattening
+- Vector-preserving output
 
-For tabletop books, 4 folios per signature is a good starting point on ordinary letter paper. Use full flattening for reliability, a 5 mm print-safe margin for the M255dw, and sewing marks with 5 stations about 20 mm from the head and tail.
+The default flattened workflow rasterizes difficult PDFs before imposition to maximize predictable printing. Higher DPI values improve small text and artwork at the cost of larger output files and slower processing.
 
-## Notes
+## Legacy Bookbinder 3
 
-- Safest print / flattened fidelity is the default. It rasterizes pages at 300 DPI before imposition so difficult PDFs print as reliably as possible.
-- For sharper art or small text, raise Flattening DPI to 450 or 600. This creates larger PDFs and slower exports.
-- Best quality / preserve vectors is available in advanced settings when searchable/vector output matters more than maximum print predictability.
-- Print-safe margin defaults to 5 mm for laser printers such as the HP Color LaserJet Pro M255dw.
-- Creep, gutter, crop marks, sewing hole marks, PDF page-box selection, and output splitting are available in advanced settings.
-- The original sample PDF and legacy generated files are kept for regression testing.
+The repository currently contains the original Bookbinder 3 materials alongside the new implementation so behavior can be compared during development. These include the original JAR, source tree, and `readme.txt`.
+
+The original README identifies the legacy Bookbinder project and credits the third-party libraries on which it was built. Those files are retained with their original attribution.
+
+## Status
+
+Bookbinder 4 is an active modernization project. The current focus is reliable local PDF processing, predictable physical printing, and making specialized book-imposition tooling substantially easier to use through a modern browser interface.
