@@ -1,6 +1,6 @@
 # Bookbinder 4
 
-A local-first web application for generating print-ready bookbinding signatures from PDF files.
+A local-first PDF imposition application for preparing printable bookbinding signatures. The repository includes a React/Vite frontend and a Python backend.
 
 Bookbinder 4 is a modern reimplementation and extension of the legacy **Bookbinder 3** desktop application. The current application replaces the older Java/Jython-era workflow with a **React frontend** and **FastAPI/PyMuPDF backend**, while preserving the specialized PDF-imposition workflow that made the original project useful.
 
@@ -84,6 +84,10 @@ The default flattened workflow rasterizes difficult PDFs before imposition to ma
 The repository currently contains the original Bookbinder 3 materials alongside the new implementation so behavior can be compared during development. These include the original JAR, source tree, and `readme.txt`.
 
 The original README identifies the legacy Bookbinder project and credits the third-party libraries on which it was built. Those files are retained with their original attribution.
+
+## Verification and limitations
+
+The repository documents regression testing against sample and legacy documents, but this README review has not independently executed those tests or verified printer output. Printed results depend on printer calibration, paper handling, duplex settings, and the characteristics of the source PDF.
 
 ## Status
 
