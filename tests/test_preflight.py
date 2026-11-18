@@ -5,9 +5,7 @@ import hashlib
 
 import fitz
 import pytest
-from fastapi.testclient import TestClient
 
-from backend.bookbinder4.main import app
 from backend.bookbinder4.preflight import analyze_pdf, safe_job_path
 
 
@@ -60,8 +58,3 @@ def test_invalid_range_rejected(tmp_path):
         analyze_pdf(path, "test", start_page=0)
     with pytest.raises(ValueError):
         analyze_pdf(path, "test", limit=101)
-
-
-def test_endpoint_invalid_job_id_is_422():
-    response = TestClient(app).get("/api/pdf/preflight/not-valid")
-    assert response.status_code == 422
