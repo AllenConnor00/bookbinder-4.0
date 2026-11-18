@@ -100,3 +100,26 @@ def test_rejects_nonfinite_target_dimensions(tmp_path):
     make_pdf(path)
     with pytest.raises(ValueError):
         analyze_pdf(path, "test", target_width_pt=float("nan"))
+
+
+def test_rotated_image_uses_transform_axes_not_bbox(tmp_path):
+    from io import BytesIO
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (200, 100), "black").save(buffer, format="PNG")
+    path = tmp_path / "rotated.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=396, height=612)
+    page.insert_image(fitz.Rect(30, 30, 130, 230), stream=buffer.getvalue(), rotate=90)
+    doc.save(path)
+    doc.close()
+
+    result = analyze_pdf(path, "test")
+    image = result.pages[0].images[0]
+    assert image.width_px == 200
+    assert image.height_px == 100
+    assert image.effective_dpi_x > 0
+    assert image.effective_dpi_y > 0
+    # The rotation-aware dimensions must not simply be the bbox dimensions.
+    assert image.displayed_width_pt != pytest.approx(100)
