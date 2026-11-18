@@ -12,6 +12,19 @@ type InspectResult = {
   preflight: PreflightItem[];
 };
 
+type AdvancedPreflight = {
+  total_pages: number;
+  start_page: number;
+  end_page: number;
+  pages: {
+    page_number: number;
+    text_classification: string;
+    blank_candidate: boolean;
+    images: { effective_dpi_x: number; effective_dpi_y: number }[];
+    findings: { severity: string; code: string; detail: string }[];
+  }[];
+};
+
 type PreflightItem = {
   severity: "ok" | "info" | "warning" | "danger";
   title: string;
@@ -112,6 +125,27 @@ export default function App() {
   const [outputs, setOutputs] = useState<string[]>([]);
   const [previewUrl, setPreviewUrl] = useState("");
   const [zoom, setZoom] = useState(1);
+  const [advancedPreflight, setAdvancedPreflight] = useState<AdvancedPreflight | null>(null);
+  const [preflightError, setPreflightError] = useState("");
+  const [preflightPage, setPreflightPage] = useState(1);
+
+  useEffect(() => {
+    if (!inspect) {
+      setAdvancedPreflight(null);
+      return;
+    }
+    const controller = new AbortController();
+    setAdvancedPreflight(null);
+    setPreflightError("");
+    fetch(`${API}/api/pdf/preflight/${encodeURIComponent(inspect.job_id)}?start_page=${preflightPage}&limit=25`, { signal: controller.signal })
+      .then(async response => {
+        if (!response.ok) throw new Error("Advanced preflight could not be loaded.");
+        return response.json() as Promise<AdvancedPreflight>;
+      })
+      .then(setAdvancedPreflight)
+      .catch(error => { if (!controller.signal.aborted) setPreflightError(String(error)); });
+    return () => controller.abort();
+  }, [inspect, preflightPage]);
 
   const requestBody = useMemo(() => (inspect ? { job_id: inspect.job_id, ...settings } : null), [inspect, settings]);
 
@@ -177,6 +211,7 @@ export default function App() {
       setBusy(false);
       return;
     }
+    setPreflightPage(1);
     setInspect(await response.json());
     setOutputs([]);
     setMessage("");
@@ -377,6 +412,29 @@ export default function App() {
                 <small>{item.recommendation}</small>
               </div>
             ))}
+          </div>
+        )}
+
+        {inspect && (
+          <div className="preflight">
+            <h3><FileSearch size={17} /> Advanced page preflight</h3>
+            {preflightError && <p role="alert">{preflightError}</p>}
+            {advancedPreflight ? (
+              <>
+                <p>Pages {advancedPreflight.start_page}–{advancedPreflight.end_page} of {advancedPreflight.total_pages}</p>
+                <p>{advancedPreflight.pages.filter(page => page.blank_candidate).length} blank candidates; {advancedPreflight.pages.reduce((n, page) => n + page.findings.filter(item => item.severity === "warning").length, 0)} warnings in this batch</p>
+                {advancedPreflight.pages.filter(page => page.findings.length).slice(0, 8).map(page => (
+                  <div className="preflightItem info" key={page.page_number}>
+                    <strong>Page {page.page_number}</strong>
+                    {page.findings.map((finding, i) => <small key={i}>{finding.detail}</small>)}
+                  </div>
+                ))}
+                <div className="previewTools">
+                  <button className="ghost" disabled={preflightPage === 1} onClick={() => setPreflightPage(Math.max(1, preflightPage - 25))}>Previous 25</button>
+                  <button className="ghost" disabled={advancedPreflight.end_page >= advancedPreflight.total_pages} onClick={() => setPreflightPage(advancedPreflight.end_page + 1)}>Next 25</button>
+                </div>
+              </>
+            ) : !preflightError ? <p>Analyzing source pages…</p> : null}
           </div>
         )}
 
