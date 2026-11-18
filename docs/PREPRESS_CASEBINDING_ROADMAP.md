@@ -148,3 +148,29 @@ PDF page index (0-based internal, 1-based display), geometry/rotation/boxes, con
 
 ### Immediate next action
 Implement this read-only preflight on the feature branch, then inspect real sample PDFs locally when available and report measured results. No claims of printed physical quality until physical proofing.
+
+## 13. Feature implementation journal — 2026-11-18
+Branch: `feat/read-only-pdf-preflight`. Work is in progress; NOT merged. No existing signature algorithm or PDF export function was changed.
+
+### Committed implementation
+- `backend/bookbinder4/preflight.py`: new read-only `analyze_pdf` with page range, target geometry, SHA-256, image placements and effective DPI, links, annotations, text presence, blank candidates and per-page findings. `safe_job_path` validates the existing 16-character hex job ID and constrains lookup to the upload directory.
+- `backend/bookbinder4/main.py`: `GET /api/pdf/preflight/{job_id}` endpoint; 404 for unknown jobs, 422 for invalid job IDs/ranges/dimensions.
+- `frontend/src/App.tsx`: preliminary paginated advanced-preflight panel (25 pages at a time), warning count, blank candidates, and actionable finding snippets. Requests are aborted on state changes.
+- `tests/test_preflight.py`: synthetic tests for source immutability, link/text/blank detection, pagination beyond page 20, invalid job IDs and ranges. HTTP TestClient test intentionally omitted because `httpx` is not declared as a dependency.
+
+### Explicit limits / unfinished acceptance criteria
+- Code committed but local tests, frontend build and real PDF evaluation have NOT been executed. Do not mark as production ready.
+- Text classification is intentionally conservative: 'text_layer_present_unverified' is not proof of visible vector glyphs. OCR-vs-vector detection is still outstanding.
+- Image DPI assumes aspect-preserving fit of the full page into a target rectangle; complex transforms, clipped images, image masks, nested forms, and rotation need additional handling and tests.
+- Image inventory relies on PyMuPDF `get_images` and `get_image_rects`; some inline/complex images may not be reported. Add coverage for inline images and annotation/rendering quirks.
+- Blank classification is a heuristic (no extracted text/images/drawings) and can miss some content or classify white images as nonblank.
+- Source hashing currently reads the entire file into memory; switch to streamed hashing for large books.
+- Preflight currently performs page analysis synchronously per API request and may be expensive for large image-heavy PDFs; add caching, resource limits and progress handling.
+- UI currently displays a small findings subset per batch; full issue navigation and print-size previews are future work.
+- No source modifications, normalization, hyperlink styling removal, enhancement, or case calculations are implemented.
+
+### Next steps
+1. Run `python -m pytest tests/test_preflight.py tests/test_binding.py -q` and `cd frontend && npm run build` locally; fix observed failures, not assumed ones.
+2. Add image-fixture effective DPI tests and classification tests; address hash streaming and image inventory edge cases.
+3. Verify API output against licensed/synthetic image-heavy PDFs, then add per-page evidence and QA export.
+4. Keep all changes on this feature branch until regression tests and quality gates pass.
