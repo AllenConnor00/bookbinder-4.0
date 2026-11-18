@@ -94,3 +94,57 @@ Run tests locally; no GitHub Actions requirement.
 
 ## 10. Handoff prompt for future agents
 Read this roadmap, README, actual implementation and tests. First report verified vs documented functionality and exact files to modify. Build Milestone A before B/C, preserving original PDFs and imposition invariants. Use locally verifiable tests, before/after quality evidence, and physical print proof criteria. Do not claim a feature exists merely because this plan describes it. Respect no paid services, no mandatory GitHub Actions, and minimal user interruptions.
+
+## 11. Verified source-code audit (2026-11-18; static review, not executed)
+Inspected actual files on default branch: `backend/bookbinder4/main.py`, `backend/bookbinder4/models.py`, `backend/bookbinder4/pdf_engine.py`, `backend/bookbinder4/binding.py`, `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/package.json`, `requirements.txt`, `scripts/dev.py`, `tests/test_binding.py`.
+
+### Confirmed structure and interfaces
+- `main.py` routes: `POST /api/pdf/inspect` (upload), `POST /api/imposition/plan`, `POST /api/imposition/export`, `POST /api/preview/render`, `POST /api/preview/contact-sheet`, `POST /api/tools/calibration`, and `GET /api/preview/{job_id}/{sheet_index}`. Uses FastAPI and `pdf_engine` functions.
+- `models.py`: `ImpositionSettings`, `PdfPageInfo`, `PdfInspectResult`, `PreflightItem`, `ImpositionPlan`, `ExportResult`, and preview/calibration requests. Current `PdfInspectResult.pages` is an array of page geometry, but backend returns only first 20 entries.
+- `pdf_engine.py` (~431 lines): `save_upload`, `path_for_job`, `inspect_pdf`, `plan_for_job`, `export_job`, `render_preview`, `_write_pdf`, `_place_vector`, `_place_raster`, `validate_export_outputs`. Upload is saved under `backend/data/uploads` with hash-derived job ID; exports under `outputs/<job-id>`.
+- `inspect_pdf` iterates all pages for page size, rotation, boxes, presence of annotations and embedded images, plus document forms/layers/modern-feature checks. It does NOT yet report per-page effective image DPI at final placement, vector-vs-raster text, visible link styling, text confidence, actual content bounds, source blank classification, or print clipping. `page.first_annot` does not comprehensively inventory links; links require separate inspection.
+- `_write_pdf` chooses raster for both `fidelity='raster'` and `fidelity='hybrid'`; vector only for `fidelity='vector'`. Current 'hybrid' export warning says 'vector-first' despite raster placement; treat as a code/documentation inconsistency to resolve with tests before relying on hybrid.
+- `_place_raster` renders at `settings.raster_dpi/72` via PyMuPDF then inserts a raster; output 300 DPI is rendering resolution, not a guarantee of source detail. `_fit_rect` implements fit/fill/stretch; validate crop/clipping and aspect ratio in tests.
+- `export_job` deletes the existing output directory for the job with `shutil.rmtree` before regeneration. Prepress intermediates and previous export versions MUST be stored separately and not deleted inadvertently.
+- `validate_export_outputs` currently checks output PDFs for nonzero page count; no page-level print QA.
+- `binding.py`: `parse_custom_folios`, `page_sequence`, `standard_folios`, `folios_for_settings`, `split_signatures`, `booklet_slots`, `perfect_bound_slots`, `slot_rects`, `build_plan`. Imposition order and creep logic are already present and should be treated as a protected dependency.
+- `tests/test_binding.py` has tests for folio parsing, one/two-folio order, blank padding, signature repetition, perfect-bound order, creep and margin bounds. Tests were read, NOT run.
+- `frontend/src/App.tsx` is a single React screen with upload, binding settings, debounced plan/preview fetch, warnings, sheet preview, export, contact sheet and calibration. Default settings: Letter 612×792 pt, custom 4 folios, raster fidelity, 300 DPI, short-edge duplex. The UI currently has no prepress stage or page-by-page source preview.
+
+### Priority defects / design constraints discovered
+1. Existing inspection truncates geometry details to first 20 pages; introduce paginated or separate full-page inventory without bloating upload responses.
+2. Distinguish link annotations from visual link-colored raster pixels. Removing links alone will not remove blue headings baked into source images.
+3. Resolve 'hybrid' semantics and validate source-vs-output rendering rather than claiming it preserves vector text.
+4. Protect previous outputs; separate immutable source, analysis cache, normalized intermediates, and versioned export paths.
+5. Add strict job-ID/path validation before introducing new file-access endpoints; bound upload size and PDF inspection workload.
+6. Introduce proper exception handling, abort/retry and stale-response protection in the React fetch flow as preflight becomes asynchronous.
+7. Custom folio parsing currently extracts positive integers from arbitrary text; stricter validation may be desirable but is separate from initial preflight work.
+8. Do not assume a successful export is print-safe; add explicit validation gates and clear QA statuses.
+
+## 12. First development branch: read-only advanced preflight
+Suggested branch name: `feat/read-only-pdf-preflight`.
+Scope strictly to inspection and reporting; no PDF transformations, export behavior changes, AI processing, or signature algorithm changes.
+
+### Proposed incremental file map
+- New `backend/bookbinder4/preflight.py`: isolated inventory routines and pure effective-DPI/geometry calculations; per-page structured findings, summary aggregation; careful PyMuPDF API version compatibility.
+- `backend/bookbinder4/models.py`: typed `PagePreflight`, `ImagePlacementInfo`, `PreflightSummary`, `PreflightReport` schemas with schema version and per-page index.
+- `backend/bookbinder4/main.py`: new read-only `GET /api/pdf/preflight/{job_id}` with optional page range and target placement geometry; return 404/422 for invalid jobs/parameters; no destructive operations.
+- `backend/bookbinder4/pdf_engine.py`: minimal adapter to reuse immutable source job lookup; avoid mixing new analysis into imposition.
+- `frontend/src/App.tsx`: initially a small advanced preflight summary and page-specific warning navigator; later refactor into separate components after API stabilizes.
+- `tests/test_preflight.py`: synthetic PDFs covering vector text, raster text, mixed images, annotations vs links, intentionally blank pages, mixed boxes, rotated pages, effective DPI, malformed input and invalid IDs.
+
+### Minimum per-page report contract
+PDF page index (0-based internal, 1-based display), geometry/rotation/boxes, content/text/images/links/annotations counts, presence of raster/vector text (with explicit 'unknown' when detection is inconclusive), image placements and effective DPI at specified final placement, blank classification with confidence, warnings with severity and evidence. Do not equate a selectable OCR layer with actual vector glyph rendering.
+
+### Acceptance gate for first PR
+- Read-only behavior demonstrably leaves source hash unchanged.
+- Reports cover ALL pages (pagination supported), including beyond page 20.
+- Correct image effective DPI after scaling to target 5.5 × 8.5 in pages; explicit uncertainty for image transforms/rotation.
+- Source image and PDF glyph/text-layer classifications are accurately distinguished on synthetic fixtures.
+- Links are inventoried separately from annotations and appearance.
+- Malformed PDFs and unknown jobs return safe, actionable errors; no path traversal.
+- Existing `test_binding.py` and other locally discoverable regression tests pass, plus new preflight tests.
+- No GitHub Actions required; include local test command and sample report.
+
+### Immediate next action
+Implement this read-only preflight on the feature branch, then inspect real sample PDFs locally when available and report measured results. No claims of printed physical quality until physical proofing.
