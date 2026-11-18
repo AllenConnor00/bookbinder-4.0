@@ -174,3 +174,10 @@ Branch: `feat/read-only-pdf-preflight`. Work is in progress; NOT merged. No exis
 2. Add image-fixture effective DPI tests and classification tests; address hash streaming and image inventory edge cases.
 3. Verify API output against licensed/synthetic image-heavy PDFs, then add per-page evidence and QA export.
 4. Keep all changes on this feature branch until regression tests and quality gates pass.
+
+### Continuation — 2026-11-18
+- Commit `68e419a`: replaced whole-file `path.read_bytes()` hashing with 1 MiB chunked SHA-256; factored effective-DPI arithmetic into `effective_image_dpi()` with positive-dimension validation.
+- Commit `eb5bac7`: added synthetic raster placement/DPI warning test, 1484×1920-to-5.5×8.5-in calculation, streamed hash equivalence, and invalid non-finite target test.
+- For 1484×1920 px filling 396×612 pt, effective DPI is ~269.8 horizontal and ~225.9 vertical. Actual page fit can add whitespace and alter placement; the analyzer computes using actual image bounding rectangles.
+- Verification status: GitHub source edits committed; tests/build NOT run. Attempt to clone feature branch into local execution environment failed because the environment could not resolve github.com. Do not claim these tests pass.
+- Next required work: run tests/build in a checkout with GitHub access, inspect PyMuPDF behavior for inline images/rotated images, harden API errors and upload resource limits, then add complete page warning navigation and machine-readable report export.
