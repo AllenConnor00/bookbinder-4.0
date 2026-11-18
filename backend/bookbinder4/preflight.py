@@ -90,22 +90,40 @@ def _page_report(page, number: int, target_width_pt: float, target_height_pt: fl
     drawings = page.get_drawings()
     images: list[ImagePlacement] = []
     findings: list[Finding] = []
-    for info in page.get_images(full=True):
-        xref = info[0]
-        width_px, height_px = int(info[2]), int(info[3])
-        for rect in page.get_image_rects(xref):
-            if rect.is_empty or rect.width <= 0 or rect.height <= 0:
-                continue
-            width_pt, height_pt = rect.width * factor, rect.height * factor
-            dpi_x, dpi_y = effective_image_dpi(width_px, height_px, width_pt, height_pt)
-            images.append(ImagePlacement(
-                xref=xref, width_px=width_px, height_px=height_px,
-                displayed_width_pt=round(width_pt, 2), displayed_height_pt=round(height_pt, 2),
-                effective_dpi_x=round(dpi_x, 1), effective_dpi_y=round(dpi_y, 1),
+    # get_image_info includes inline images that get_images(full=True) can miss.
+    # The transform maps the unit image square onto the page. Vector lengths
+    # are valid even for rotated placements; bbox width/height alone are not.
+    for info in page.get_image_info(xrefs=True):
+        xref = int(info.get("xref", 0) or 0)  # zero denotes an inline image
+        width_px, height_px = int(info["width"]), int(info["height"])
+        transform = info.get("transform")
+        if transform is not None:
+            a, b, c, d = transform[:4]
+            placed_width = math.hypot(a, b)
+            placed_height = math.hypot(c, d)
+        else:
+            rect = info["bbox"]
+            placed_width = rect[2] - rect[0]
+            placed_height = rect[3] - rect[1]
+            findings.append(Finding(
+                severity="info", code="image_transform_unknown",
+                detail="Image placement transform unavailable; DPI uses bounding box approximation."
             ))
-            if min(dpi_x, dpi_y) < 200:
-                findings.append(Finding(severity="warning", code="low_image_dpi",
-                                        detail=f"Image {xref}: {min(dpi_x, dpi_y):.0f} effective DPI at target size."))
+        width_pt, height_pt = placed_width * factor, placed_height * factor
+        if width_pt <= 0 or height_pt <= 0:
+            continue
+        dpi_x, dpi_y = effective_image_dpi(width_px, height_px, width_pt, height_pt)
+        images.append(ImagePlacement(
+            xref=xref, width_px=width_px, height_px=height_px,
+            displayed_width_pt=round(width_pt, 2), displayed_height_pt=round(height_pt, 2),
+            effective_dpi_x=round(dpi_x, 1), effective_dpi_y=round(dpi_y, 1),
+        ))
+        if min(dpi_x, dpi_y) < 200:
+            name = f"Image {xref}" if xref else "Inline image"
+            findings.append(Finding(
+                severity="warning", code="low_image_dpi",
+                detail=f"{name}: {min(dpi_x, dpi_y):.0f} effective DPI at target size."
+            ))
     links = page.get_links()
     annotations = list(page.annots() or [])
     if links:
