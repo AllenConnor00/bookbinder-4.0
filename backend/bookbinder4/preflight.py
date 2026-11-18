@@ -68,6 +68,20 @@ def safe_job_path(job_id: str, upload_dir: Path) -> Path:
     return candidate
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def effective_image_dpi(width_px: int, height_px: int, width_pt: float, height_pt: float) -> tuple[float, float]:
+    if width_px <= 0 or height_px <= 0 or width_pt <= 0 or height_pt <= 0:
+        raise ValueError("Image pixel and placement dimensions must be positive.")
+    return width_px * 72 / width_pt, height_px * 72 / height_pt
+
+
 def _page_report(page, number: int, target_width_pt: float, target_height_pt: float) -> PageReport:
     # The same aspect-preserving 'fit' geometry as a normalized interior.
     source = page.rect
@@ -83,8 +97,7 @@ def _page_report(page, number: int, target_width_pt: float, target_height_pt: fl
             if rect.is_empty or rect.width <= 0 or rect.height <= 0:
                 continue
             width_pt, height_pt = rect.width * factor, rect.height * factor
-            dpi_x = width_px * 72 / width_pt
-            dpi_y = height_px * 72 / height_pt
+            dpi_x, dpi_y = effective_image_dpi(width_px, height_px, width_pt, height_pt)
             images.append(ImagePlacement(
                 xref=xref, width_px=width_px, height_px=height_px,
                 displayed_width_pt=round(width_pt, 2), displayed_height_pt=round(height_pt, 2),
@@ -118,7 +131,7 @@ def analyze_pdf(path: Path, job_id: str, start_page: int = 1, limit: int = 25,
     if not all(math.isfinite(v) and 36 <= v <= 2000 for v in (target_width_pt, target_height_pt)):
         raise ValueError("Target dimensions must be finite and between 36 and 2000 points.")
     pdf = require_fitz()
-    source_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    source_hash = sha256_file(path)
     with pdf.open(path) as doc:
         if doc.needs_pass:
             raise ValueError("Encrypted PDF cannot be inspected without a password.")
