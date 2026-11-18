@@ -137,7 +137,15 @@ export default function App() {
     const controller = new AbortController();
     setAdvancedPreflight(null);
     setPreflightError("");
-    fetch(`${API}/api/pdf/preflight/${encodeURIComponent(inspect.job_id)}?start_page=${preflightPage}&limit=25`, { signal: controller.signal })
+    const targetWidth = Math.max(settings.paper.width, settings.paper.height) / 2;
+    const targetHeight = Math.min(settings.paper.width, settings.paper.height);
+    const query = new URLSearchParams({
+      start_page: String(preflightPage),
+      limit: "25",
+      target_width_pt: String(targetWidth),
+      target_height_pt: String(targetHeight),
+    });
+    fetch(`${API}/api/pdf/preflight/${encodeURIComponent(inspect.job_id)}?${query}`, { signal: controller.signal })
       .then(async response => {
         if (!response.ok) throw new Error("Advanced preflight could not be loaded.");
         return response.json() as Promise<AdvancedPreflight>;
@@ -145,7 +153,7 @@ export default function App() {
       .then(setAdvancedPreflight)
       .catch(error => { if (!controller.signal.aborted) setPreflightError(String(error)); });
     return () => controller.abort();
-  }, [inspect, preflightPage]);
+  }, [inspect, preflightPage, settings.paper.width, settings.paper.height]);
 
   const requestBody = useMemo(() => (inspect ? { job_id: inspect.job_id, ...settings } : null), [inspect, settings]);
 
