@@ -6,7 +6,7 @@ import hashlib
 import fitz
 import pytest
 
-from backend.bookbinder4.preflight import analyze_pdf, safe_job_path
+from backend.bookbinder4.preflight import analyze_pdf, effective_image_dpi, safe_job_path, sha256_file
 
 
 def make_pdf(path):
@@ -58,3 +58,45 @@ def test_invalid_range_rejected(tmp_path):
         analyze_pdf(path, "test", start_page=0)
     with pytest.raises(ValueError):
         analyze_pdf(path, "test", limit=101)
+
+
+def test_effective_dpi_uses_final_placement_not_pdf_metadata():
+    x, y = effective_image_dpi(1484, 1920, 396, 612)
+    assert x == pytest.approx(269.81818, rel=1e-4)
+    assert y == pytest.approx(225.88235, rel=1e-4)
+    with pytest.raises(ValueError):
+        effective_image_dpi(1484, 1920, 0, 612)
+
+
+def test_image_placement_dpi_and_warning(tmp_path):
+    from PIL import Image
+    from io import BytesIO
+
+    buffer = BytesIO()
+    Image.new("RGB", (100, 100), "white").save(buffer, format="PNG")
+    path = tmp_path / "raster.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=396, height=612)
+    page.insert_image(fitz.Rect(0, 0, 396, 612), stream=buffer.getvalue())
+    doc.save(path)
+    doc.close()
+
+    report = analyze_pdf(path, "test")
+    page_report = report.pages[0]
+    assert page_report.image_count == 1
+    assert page_report.images[0].effective_dpi_x == pytest.approx(18.2, abs=0.1)
+    assert page_report.images[0].effective_dpi_y == pytest.approx(11.8, abs=0.1)
+    assert any(f.code == "low_image_dpi" for f in page_report.findings)
+
+
+def test_streamed_hash_matches_standard_digest(tmp_path):
+    path = tmp_path / "large.bin"
+    path.write_bytes(b"abcdef" * 200000)
+    assert sha256_file(path) == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_rejects_nonfinite_target_dimensions(tmp_path):
+    path = tmp_path / "source.pdf"
+    make_pdf(path)
+    with pytest.raises(ValueError):
+        analyze_pdf(path, "test", target_width_pt=float("nan"))
