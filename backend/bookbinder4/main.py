@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .preflight import PreflightReport, analyze_pdf, safe_job_path
+from .pdf_engine import UPLOAD_DIR
 from .models import CalibrationRequest, ContactSheetRequest, ExportResult, ImpositionPlan, ImpositionSettings, PdfInspectResult, PreviewRequest
 from .pdf_engine import create_calibration_page, create_contact_sheet, export_job, inspect_pdf, plan_for_job, render_preview, save_upload
 
@@ -29,6 +31,18 @@ async def inspect_upload(file: UploadFile = File(...)) -> PdfInspectResult:
     data = await file.read()
     job_id, path = save_upload(file.filename, data)
     return inspect_pdf(path, job_id)
+
+
+@app.get("/api/pdf/preflight/{job_id}", response_model=PreflightReport)
+def preflight(job_id: str, start_page: int = 1, limit: int = 25,
+              target_width_pt: float = 396, target_height_pt: float = 612) -> PreflightReport:
+    try:
+        path = safe_job_path(job_id, UPLOAD_DIR)
+        return analyze_pdf(path, job_id, start_page, limit, target_width_pt, target_height_pt)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/imposition/plan", response_model=ImpositionPlan)
