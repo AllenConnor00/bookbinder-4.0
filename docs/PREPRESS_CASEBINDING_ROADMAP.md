@@ -181,3 +181,11 @@ Branch: `feat/read-only-pdf-preflight`. Work is in progress; NOT merged. No exis
 - For 1484×1920 px filling 396×612 pt, effective DPI is ~269.8 horizontal and ~225.9 vertical. Actual page fit can add whitespace and alter placement; the analyzer computes using actual image bounding rectangles.
 - Verification status: GitHub source edits committed; tests/build NOT run. Attempt to clone feature branch into local execution environment failed because the environment could not resolve github.com. Do not claim these tests pass.
 - Next required work: run tests/build in a checkout with GitHub access, inspect PyMuPDF behavior for inline images/rotated images, harden API errors and upload resource limits, then add complete page warning navigation and machine-readable report export.
+
+### Continuation — image placement and paper-aware analysis (2026-11-18)
+- `c4cc22c`: replace `get_images(full=True)` + `get_image_rects` with `page.get_image_info(xrefs=True)`, which can inventory inline images and includes a placement transform. Effective DPI now derives placed axis lengths from the transform (hypotenuse of each linear column), rather than the axis-aligned bounding box, reducing false measurements for 90-degree rotations and sheared placements. `xref=0` represents inline image.
+- `b9147e0`: synthetic rotated-image regression fixture added; this test is committed but NOT executed.
+- `4cb90bf`: frontend preflight requests now derive nominal leaf geometry from the currently selected paper preset instead of always assuming 396×612 points.
+- Important limitation: the requested target dimensions are nominal leaf dimensions, not the final *content rectangle* after print-safe margins, gutter, creep, trim, or fill/stretch settings. Treat DPI findings as estimates until the report shares placement transforms with the actual imposition engine.
+- Current static code changes have not been validated by running pytest or a Vite build; container GitHub clone fails due DNS resolution. The connected GitHub API can read/write code but does not execute it.
+- Next: run local tests; add image-mask/inline fixtures, optional full-report export, print-safe content rectangle analysis, and robust cancellation/timeout handling. Do not merge until verification.
